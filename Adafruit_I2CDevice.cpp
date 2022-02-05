@@ -8,8 +8,8 @@
  *    @param  theWire The I2C bus to use, defaults to &Wire
  */
 Adafruit_I2CDevice::Adafruit_I2CDevice(uint8_t addr, TwoWire *theWire) {
-#if defined(ADAFRUIT_THREADSAFE_I2C) && defined(DEBUG_SERIAL)
-  DEBUG_SERIAL.println("WARNING: Thread-safe I2C is enabled. This is an experimental feature and may introduce regressions into your code.");
+#if defined(ADAFRUIT_THREADSAFE_I2C)
+  Serial.println("WARNING: Thread-safe I2C is enabled. This is an experimental feature and may introduce regressions into your code.");
 #endif
   giveSemaphore();
   _addr = addr;
@@ -36,6 +36,10 @@ bool Adafruit_I2CDevice::giveSemaphore() {
 #else
   return xSemaphoreGive(i2cSem);
 #endif
+}
+
+bool Adafruit_I2CDevice::busy() {
+  return _wire->busy();
 }
 
 /*!
@@ -189,7 +193,7 @@ bool Adafruit_I2CDevice::write(const uint8_t *buffer, size_t len, bool stop,
     return true;
   } else {
 #ifdef DEBUG_SERIAL
-    DEBUG_SERIAL.println("\tFailed to send!");
+    DEBUG_SERIAL.printf("\tFailed to send! err=%s (%d)\n", _wire->getErrorText(_wire->lastError()), _wire->lastError());
 #endif
     giveSemaphore();
     return false;

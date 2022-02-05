@@ -36,6 +36,8 @@ public:
                        bool stop = false);
   bool setSpeed(uint32_t desiredclk);
 
+  bool busy();
+
   /*!   @brief  How many bytes we can read in a transaction
    *    @return The size of the Wire receive/transmit buffer */
   size_t maxBufferSize() { return _maxBufferSize; }
