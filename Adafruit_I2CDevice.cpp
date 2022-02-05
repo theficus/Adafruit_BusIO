@@ -1,10 +1,6 @@
-#define ADAFRUIT_THREADSAFE_I2C
 #include "Adafruit_I2CDevice.h"
 
-// TODO: Do not ship this
-#define BLURT(v) Serial.printf("%s:%d=%d\n", __FUNCTION__, __LINE__, v);
-
-//#define DEBUG_SERIAL Serial
+#define DEBUG_SERIAL Serial
 
 /*!
  *    @brief  Create an I2C device at a given address
@@ -12,7 +8,10 @@
  *    @param  theWire The I2C bus to use, defaults to &Wire
  */
 Adafruit_I2CDevice::Adafruit_I2CDevice(uint8_t addr, TwoWire *theWire) {
-  createSemaphore();
+#if defined(ADAFRUIT_THREADSAFE_I2C) && defined(DEBUG_SERIAL)
+  DEBUG_SERIAL.println("WARNING: Thread-safe I2C is enabled. This is an experimental feature and may introduce regressions into your code.");
+#endif
+  giveSemaphore();
   _addr = addr;
   _wire = theWire;
   _begun = false;
@@ -23,65 +22,19 @@ Adafruit_I2CDevice::Adafruit_I2CDevice(uint8_t addr, TwoWire *theWire) {
 #endif
 }
 
-bool Adafruit_I2CDevice::createSemaphore() {
-#ifndef ADAFRUIT_THREADSAFE_I2C
-  BLURT(1);
-  return true;
-#else
-  if (i2cSem == NULL) {
-#ifdef DEBUG_SERIAL
-    DEBUG_SERIAL.println("creating semaphore handle");
-#endif
-    i2cSem = xSemaphoreCreateBinary();
-  }
-
-  BLURT((int)&i2cSem);
-
-  if (i2cSem == NULL) {
-#ifdef DEBUG_SERIAL
-    DEBUG_SERIAL.println("ERROR: could not create semaphore handle");
-#endif
-    return false;
-  } 
-
-  // Initialize the semaphore to have a state
-  return giveSemaphore();
-#endif
-}
-
 bool Adafruit_I2CDevice::takeSemaphore(uint32_t timeout = ADAFRUIT_THREADSAFE_I2C_DEFAULT_TIMEOUT) {
 #ifndef ADAFRUIT_THREADSAFE_I2C
-  BLURT(1);
   return true;
 #else
-
-#ifdef DEBUG_SERIAL
-  DEBUG_SERIAL.printf("waiting for semaphore handle (timeout: %u ticks)\n", timeout);
-#endif
-  bool result = xSemaphoreTake(i2cSem, timeout);
-
-#ifdef DEBUG_SERIAL
-  DEBUG_SERIAL.printf("xSemaphoreTake result: %d\n", result);
-  if (result == false)
-  {
-    DEBUG_SERIAL.printf("WARNING: Unable to get semaphore by timeout: %u ticks\n", timeout);
-  }
-#endif
-
-  BLURT(result);
-  return result;
-
+  return xSemaphoreTake(i2cSem, timeout);
 #endif
 }
 
 bool Adafruit_I2CDevice::giveSemaphore() {
 #ifndef ADAFRUIT_THREADSAFE_I2C
-  BLURT(1);
   return true;
 #else
-  bool result = xSemaphoreGive(i2cSem);
-  BLURT(result);
-  return result;
+  return xSemaphoreGive(i2cSem);
 #endif
 }
 

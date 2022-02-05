@@ -48,12 +48,11 @@ private:
   bool _read(uint8_t *buffer, size_t len, bool stop);
 
 #ifdef ADAFRUIT_THREADSAFE_I2C
-  SemaphoreHandle_t i2cSem;
+  SemaphoreHandle_t i2cSem = xSemaphoreCreateBinary();
 #endif
 
   bool takeSemaphore(uint32_t timeout);
   bool giveSemaphore();
-  bool createSemaphore();
 };
 
 #endif // Adafruit_I2CDevice_h
