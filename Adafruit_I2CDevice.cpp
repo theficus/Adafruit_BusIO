@@ -1,28 +1,65 @@
+#define ADAFRUIT_THREADSAFE_I2C
 #include "Adafruit_I2CDevice.h"
 
+// TODO: Do not ship this
+#define BLURT(v) Serial.printf("%s:%d=%d\n", __FUNCTION__, __LINE__, v);
+
 //#define DEBUG_SERIAL Serial
-//#define ADAFRUIT_THREADSAFE_I2C
 
-// ESP boards only:
-// The TwoWire library is not thread safe and can cause a crash if concurrent operations are occurring on the I2C bus.
-// For example, if you are using a Task to read or write to the I2C bus you can easily get into a state where multiple reads/writes are
-// occurring at the same time which can corrupt internal state and lead to a crash. You can opt into experimental thread-safe I2C 
-// accesses by defining ADAFRUIT_THREADSAFE_I2C. This will enable synchronization to ensure only one operation can occur on the I2C bus
-// at a time. The functionality defined here is a NOOP in any other case.
-#if defined(ADAFRUIT_THREADSAFE_I2C)
-#if defined(ESP32) || defined(ESP8266)
-
-// Semaphore timeout to use by default
-#ifndef ADAFRUIT_THREADSAFE_I2C_TIMEOUT_TICKS
-#define ADAFRUIT_THREADSAFE_I2C_TIMEOUT_TICKS portMAX_DELAY
+/*!
+ *    @brief  Create an I2C device at a given address
+ *    @param  addr The 7-bit I2C address for the device
+ *    @param  theWire The I2C bus to use, defaults to &Wire
+ */
+Adafruit_I2CDevice::Adafruit_I2CDevice(uint8_t addr, TwoWire *theWire) {
+  createSemaphore();
+  _addr = addr;
+  _wire = theWire;
+  _begun = false;
+#ifdef ARDUINO_ARCH_SAMD
+  _maxBufferSize = 250; // as defined in Wire.h's RingBuffer
+#else
+  _maxBufferSize = 32;
 #endif
-SemaphoreHandle_t i2cSem = xSemaphoreCreateBinary();
+}
 
-bool takeSemaphore(TickType_t timeout = ADAFRUIT_THREADSAFE_I2C_TIMEOUT_TICKS) {
+bool Adafruit_I2CDevice::createSemaphore() {
+#ifndef ADAFRUIT_THREADSAFE_I2C
+  BLURT(1);
+  return true;
+#else
+  if (i2cSem == NULL) {
+#ifdef DEBUG_SERIAL
+    DEBUG_SERIAL.println("creating semaphore handle");
+#endif
+    i2cSem = xSemaphoreCreateBinary();
+  }
+
+  BLURT((int)&i2cSem);
+
+  if (i2cSem == NULL) {
+#ifdef DEBUG_SERIAL
+    DEBUG_SERIAL.println("ERROR: could not create semaphore handle");
+#endif
+    return false;
+  } 
+
+  // Initialize the semaphore to have a state
+  return giveSemaphore();
+#endif
+}
+
+bool Adafruit_I2CDevice::takeSemaphore(uint32_t timeout = ADAFRUIT_THREADSAFE_I2C_DEFAULT_TIMEOUT) {
+#ifndef ADAFRUIT_THREADSAFE_I2C
+  BLURT(1);
+  return true;
+#else
+
 #ifdef DEBUG_SERIAL
   DEBUG_SERIAL.printf("waiting for semaphore handle (timeout: %u ticks)\n", timeout);
 #endif
-  bool result = xSemaphoreTake(&i2cSem, timeout);
+  bool result = xSemaphoreTake(i2cSem, timeout);
+
 #ifdef DEBUG_SERIAL
   DEBUG_SERIAL.printf("xSemaphoreTake result: %d\n", result);
   if (result == false)
@@ -31,51 +68,20 @@ bool takeSemaphore(TickType_t timeout = ADAFRUIT_THREADSAFE_I2C_TIMEOUT_TICKS) {
   }
 #endif
 
+  BLURT(result);
   return result;
+
+#endif
 }
 
-bool giveSemaphore() {
-#ifdef DEBUG_SERIAL
-  DEBUG_SERIAL.println("returning semaphore handle");
-#endif
-  bool result = xSemaphoreGive(&i2cSem);
-
-#ifdef DEBUG_SERIAL
-  DEBUG_SERIAL.printf("xSemaphoreGive result: %d\n", result);
-  if (result == false)
-  {
-    DEBUG_SERIAL.println("WARNING: Unable to give semaphoren");
-  }
-#endif
-
+bool Adafruit_I2CDevice::giveSemaphore() {
+#ifndef ADAFRUIT_THREADSAFE_I2C
+  BLURT(1);
+  return true;
+#else
+  bool result = xSemaphoreGive(i2cSem);
+  BLURT(result);
   return result;
-}
-#else
-#error ADAFRUIT_THREADSAFE_I2C only supported on ESP32 or ESP2866
-#endif
-#else
-// NOOP unless ADAFRUIT_THREADSAFE_I2C is defined
-#define takeSemaphore(timeout) { return true; }
-#define giveSemaphore() { return true; }
-#endif
-
-/*!
- *    @brief  Create an I2C device at a given address
- *    @param  addr The 7-bit I2C address for the device
- *    @param  theWire The I2C bus to use, defaults to &Wire
- */
-Adafruit_I2CDevice::Adafruit_I2CDevice(uint8_t addr, TwoWire *theWire) {
-#ifdef ADAFRUIT_THREADSAFE_I2C
-  i2cSem = xSemaphoreCreateBinary();
-  giveSemaphore(); // initialize to a default state
-#endif
-  _addr = addr;
-  _wire = theWire;
-  _begun = false;
-#ifdef ARDUINO_ARCH_SAMD
-  _maxBufferSize = 250; // as defined in Wire.h's RingBuffer
-#else
-  _maxBufferSize = 32;
 #endif
 }
 
@@ -128,7 +134,6 @@ bool Adafruit_I2CDevice::detected(void) {
     return false;
   }
 
-  bool success = false;
   // A basic scanner, see if it ACK's
   takeSemaphore();
   _wire->beginTransmission(_addr);
@@ -136,15 +141,15 @@ bool Adafruit_I2CDevice::detected(void) {
 #ifdef DEBUG_SERIAL
     DEBUG_SERIAL.println(F("Detected"));
 #endif
-    success = true;
-  } else {
-#ifdef DEBUG_SERIAL
-    DEBUG_SERIAL.println(F("Not detected"));
-#endif
+    giveSemaphore();
+    return true;
   }
+#ifdef DEBUG_SERIAL
+  DEBUG_SERIAL.println(F("Not detected"));
+#endif
 
   giveSemaphore();
-  return success;
+  return false;
 }
 
 /*!
@@ -173,7 +178,6 @@ bool Adafruit_I2CDevice::write(const uint8_t *buffer, size_t len, bool stop,
     return false;
   }
 
-  bool success = false;
   takeSemaphore();
   _wire->beginTransmission(_addr);
 
@@ -183,55 +187,60 @@ bool Adafruit_I2CDevice::write(const uint8_t *buffer, size_t len, bool stop,
 #ifdef DEBUG_SERIAL
       DEBUG_SERIAL.println(F("\tI2CDevice failed to write"));
 #endif
-    }
-  } else {
-    // Write the data itself
-    if (_wire->write(buffer, len) != len) {
-#ifdef DEBUG_SERIAL
-      DEBUG_SERIAL.println(F("\tI2CDevice failed to write"));
-#endif
-    } else {
-#ifdef DEBUG_SERIAL
-      DEBUG_SERIAL.print(F("\tI2CWRITE @ 0x"));
-      DEBUG_SERIAL.print(_addr, HEX);
-      DEBUG_SERIAL.print(F(" :: "));
-      if ((prefix_len != 0) && (prefix_buffer != NULL)) {
-        for (uint16_t i = 0; i < prefix_len; i++) {
-          DEBUG_SERIAL.print(F("0x"));
-          DEBUG_SERIAL.print(prefix_buffer[i], HEX);
-          DEBUG_SERIAL.print(F(", "));
-        }
-      }
-      for (uint16_t i = 0; i < len; i++) {
-        DEBUG_SERIAL.print(F("0x"));
-        DEBUG_SERIAL.print(buffer[i], HEX);
-        DEBUG_SERIAL.print(F(", "));
-        if (i % 32 == 31) {
-          DEBUG_SERIAL.println();
-        }
-      }
-
-      if (stop) {
-        DEBUG_SERIAL.print("\tSTOP");
-      }
-#endif
-
-      if (_wire->endTransmission(stop) == 0) {
-#ifdef DEBUG_SERIAL
-        DEBUG_SERIAL.println();
-        // DEBUG_SERIAL.println("Sent!");
-#endif
-        success = true;
-      } else {
-#ifdef DEBUG_SERIAL
-        DEBUG_SERIAL.println("\tFailed to send!");
-#endif
-      }
+      giveSemaphore();
+      return false;
     }
   }
 
-  giveSemaphore();
-  return success;
+  // Write the data itself
+  if (_wire->write(buffer, len) != len) {
+#ifdef DEBUG_SERIAL
+    DEBUG_SERIAL.println(F("\tI2CDevice failed to write"));
+#endif
+    giveSemaphore();
+    return false;
+  }
+
+#ifdef DEBUG_SERIAL
+
+  DEBUG_SERIAL.print(F("\tI2CWRITE @ 0x"));
+  DEBUG_SERIAL.print(_addr, HEX);
+  DEBUG_SERIAL.print(F(" :: "));
+  if ((prefix_len != 0) && (prefix_buffer != NULL)) {
+    for (uint16_t i = 0; i < prefix_len; i++) {
+      DEBUG_SERIAL.print(F("0x"));
+      DEBUG_SERIAL.print(prefix_buffer[i], HEX);
+      DEBUG_SERIAL.print(F(", "));
+    }
+  }
+  for (uint16_t i = 0; i < len; i++) {
+    DEBUG_SERIAL.print(F("0x"));
+    DEBUG_SERIAL.print(buffer[i], HEX);
+    DEBUG_SERIAL.print(F(", "));
+    if (i % 32 == 31) {
+      DEBUG_SERIAL.println();
+    }
+  }
+
+  if (stop) {
+    DEBUG_SERIAL.print("\tSTOP");
+  }
+#endif
+
+  if (_wire->endTransmission(stop) == 0) {
+#ifdef DEBUG_SERIAL
+    DEBUG_SERIAL.println();
+    // DEBUG_SERIAL.println("Sent!");
+#endif
+    giveSemaphore();
+    return true;
+  } else {
+#ifdef DEBUG_SERIAL
+    DEBUG_SERIAL.println("\tFailed to send!");
+#endif
+    giveSemaphore();
+    return false;
+  }
 }
 
 /*!
@@ -256,9 +265,7 @@ bool Adafruit_I2CDevice::read(uint8_t *buffer, size_t len, bool stop) {
 }
 
 bool Adafruit_I2CDevice::_read(uint8_t *buffer, size_t len, bool stop) {
-  bool success = false;
-  takeSemaphore();  
-  
+  takeSemaphore();
 #if defined(TinyWireM_h)
   size_t recv = _wire->requestFrom((uint8_t)_addr, (uint8_t)len);
 #else
@@ -271,31 +278,31 @@ bool Adafruit_I2CDevice::_read(uint8_t *buffer, size_t len, bool stop) {
     DEBUG_SERIAL.print(F("\tI2CDevice did not receive enough data: "));
     DEBUG_SERIAL.println(recv);
 #endif
-  } else {
-    for (uint16_t i = 0; i < len; i++) {
-      buffer[i] = _wire->read();
-    }
-
-#ifdef DEBUG_SERIAL
-    DEBUG_SERIAL.print(F("\tI2CREAD  @ 0x"));
-    DEBUG_SERIAL.print(_addr, HEX);
-    DEBUG_SERIAL.print(F(" :: "));
-    for (uint16_t i = 0; i < len; i++) {
-      DEBUG_SERIAL.print(F("0x"));
-      DEBUG_SERIAL.print(buffer[i], HEX);
-      DEBUG_SERIAL.print(F(", "));
-      if (len % 32 == 31) {
-        DEBUG_SERIAL.println();
-      }
-    }
-    DEBUG_SERIAL.println();
-#endif
-
-    success = true;
+    giveSemaphore();
+    return false;
   }
 
+  for (uint16_t i = 0; i < len; i++) {
+    buffer[i] = _wire->read();
+  }
+
+#ifdef DEBUG_SERIAL
+  DEBUG_SERIAL.print(F("\tI2CREAD  @ 0x"));
+  DEBUG_SERIAL.print(_addr, HEX);
+  DEBUG_SERIAL.print(F(" :: "));
+  for (uint16_t i = 0; i < len; i++) {
+    DEBUG_SERIAL.print(F("0x"));
+    DEBUG_SERIAL.print(buffer[i], HEX);
+    DEBUG_SERIAL.print(F(", "));
+    if (len % 32 == 31) {
+      DEBUG_SERIAL.println();
+    }
+  }
+  DEBUG_SERIAL.println();
+#endif
+
   giveSemaphore();
-  return success;
+  return true;
 }
 
 /*!
@@ -333,11 +340,14 @@ uint8_t Adafruit_I2CDevice::address(void) { return _addr; }
  *    Not necessarily that the speed was achieved!
  */
 bool Adafruit_I2CDevice::setSpeed(uint32_t desiredclk) {
+  takeSemaphore();
 #if (ARDUINO >= 157) && !defined(ARDUINO_STM32_FEATHER) && !defined(TinyWireM_h)
   _wire->setClock(desiredclk);
+  giveSemaphore();
   return true;
 #else
   (void)desiredclk;
+  giveSemaphore();
   return false;
 #endif
 }

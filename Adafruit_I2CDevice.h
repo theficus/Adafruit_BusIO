@@ -4,6 +4,21 @@
 #include <Arduino.h>
 #include <Wire.h>
 
+// This functionality is only supported on the ESP platform. Fail to compile if this gets enabled on other platforms
+#if defined(ADAFRUIT_THREADSAFE_I2C) && !defined(ESP32) && !defined(ESP8266)
+#error ADAFRUIT_THREADSAFE_I2C only supported on ESP32 or ESP8266
+#endif
+
+// When using I2C thread safety on the ESP platform, provide an optional timeout value. Default is no timeout. This can be tuned
+// in the future as needed. This does nothing unless opted into I2C thread safety with ADAFRUIT_THREADSAFE_I2C
+#ifndef ADAFRUIT_THREADSAFE_I2C_DEFAULT_TIMEOUT
+#if defined(ESP32) || defined(ESP8266)
+#define ADAFRUIT_THREADSAFE_I2C_DEFAULT_TIMEOUT portMAX_DELAY
+#else
+#define ADAFRUIT_THREADSAFE_I2C_DEFAULT_TIMEOUT 0
+#endif
+#endif
+
 ///< The class which defines how we will talk to this device over I2C
 class Adafruit_I2CDevice {
 public:
@@ -31,6 +46,14 @@ private:
   bool _begun;
   size_t _maxBufferSize;
   bool _read(uint8_t *buffer, size_t len, bool stop);
+
+#ifdef ADAFRUIT_THREADSAFE_I2C
+  SemaphoreHandle_t i2cSem;
+#endif
+
+  bool takeSemaphore(uint32_t timeout);
+  bool giveSemaphore();
+  bool createSemaphore();
 };
 
 #endif // Adafruit_I2CDevice_h
